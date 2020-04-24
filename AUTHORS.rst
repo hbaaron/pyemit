@@ -5,7 +5,7 @@ Credits
 Development Lead
 ----------------
 
-* Aaron Yang <code@jieyu.ai>
+* Aaron Yang <aaron_yang@jieyu.ai>
 
 Contributors
 ------------

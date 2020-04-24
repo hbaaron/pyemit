@@ -16,7 +16,8 @@ py-emit
 
 
 
-轻量级的事件封装库，支持进程内事件，REDIS PUBSUB，RPC
+light-weight asynchronous event mechanism, support in-process communication, remote message server (currently redis
+ only). Provided api for RPC implementation.
 
 
 * Free software: MIT license
@@ -26,7 +27,10 @@ py-emit
 Features
 --------
 
-* TODO
+* asynchronous support.
+* support in-process communication
+* support remote message server (currently redis, aioredis is required)
+* provides API for further implementing RPC
 
 Credits
 -------
