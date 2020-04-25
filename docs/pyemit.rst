@@ -12,6 +12,14 @@ pyemit.emit module
     :undoc-members:
     :show-inheritance:
 
+pyemit.remote module
+--------------------
+
+.. automodule:: pyemit.remote
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 
 Module contents
 ---------------

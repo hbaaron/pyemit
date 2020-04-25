@@ -16,8 +16,8 @@ py-emit
 
 
 
-light-weight asynchronous event mechanism, support in-process communication, remote message server (currently redis
- only). Provided api for RPC implementation.
+light-weight asynchronous event system, support in-process communication, remote message server (currently redis
+ only) communication and remote procedure call (RPC).
 
 
 * Free software: MIT license
@@ -30,7 +30,7 @@ Features
 * asynchronous support.
 * support in-process communication
 * support remote message server (currently redis, aioredis is required)
-* provides API for further implementing RPC
+* RPC (Remote procedure call)
 
 Credits
 -------

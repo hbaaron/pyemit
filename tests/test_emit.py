@@ -1,7 +1,11 @@
 import asyncio
+import datetime
+import enum
 import unittest
+import pickle
 
 import pyemit.emit as e
+from pyemit.remote import Remote
 from tests.helper import async_test
 
 import logging
@@ -18,6 +22,22 @@ async def on_test_decorator(msg):
     global _received_test_decorator_msgs
     logger.info("on_test_decorator")
     _received_test_decorator_msgs += 1
+
+
+class MyEnum(enum.Enum):
+    MONDAY = 0
+
+
+class Sum(Remote):
+    def __init__(self, to_be_sum):
+        super().__init__()
+        self.timestamp = datetime.datetime.now()
+        self.start = MyEnum.MONDAY
+        self.to_be_sum = to_be_sum
+
+    async def server_impl(self, *args, **kwargs):
+        result = sum(self.to_be_sum)
+        await super().respond(result)
 
 
 class TestEmit(unittest.TestCase):
@@ -77,28 +97,21 @@ class TestEmit(unittest.TestCase):
         await e.start(e.Engine.REDIS, heart_beat=0.5, dsn="redis://localhost")
         await asyncio.sleep(1)
 
-    async def rpc_handler(self, msg):
-        if msg['command'] == 'add':
-            msg["result"] = msg["count"] + 1
-            msg.pop('count')
-
-            await e.rpc_respond(msg)
-
     @async_test
     async def test_redis_rpc_call(self):
-        e.rpc_register_handler(self.rpc_handler)
         await e.start(e.Engine.REDIS, dsn="redis://localhost")
-        response = await e.rpc_send({"command": "add", "count": 0})
-        self.assertEqual(1, response['result'])
+        foo = Sum([0, 1, 2])
+        response = await foo()
+        self.assertEqual(3, response)
 
         await asyncio.sleep(0.1)
 
     @async_test
     async def test_inprocess_rpc_call(self):
-        e.rpc_register_handler(self.rpc_handler)
-        await e.start(dsn="redis://localhost")
-        response = await e.rpc_send({"command": "add", "count": 0})
-        self.assertEqual(1, response['result'])
+        await e.start()
+        foo = Sum([0, 1, 2, 3, 4])
+        response = await foo()
+        self.assertEqual(10, response)
 
         await asyncio.sleep(0.1)
 

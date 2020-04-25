@@ -1,9 +1,10 @@
 import asyncio
 import logging
+import pickle
 import time
 import uuid
 from enum import IntEnum
-from typing import Callable
+from typing import Callable, Any
 
 logger = logging.getLogger(__name__)
 
@@ -107,24 +108,38 @@ async def _listen(event: str):
         while True:
             msg = await queue.get()
             try:
+                msg = pickle.loads(msg)
                 await get_and_invoke(event, msg)
+            except Exception as e:
+                logger.warning("msg %s caused exception", msg)
+                logger.exception(e)
             finally:
                 queue.task_done()
     else:
         while await queue.wait_message():
-            msg = await queue.get_json(encoding='utf-8')
-            await get_and_invoke(event, msg)
+            try:
+                msg = await queue.get()
+            except Exception as e:
+                logger.warning("connection error?")
+                # todo: try reconnect?
+                continue
+            try:
+                msg = pickle.loads(msg)
+                await get_and_invoke(event, msg)
+            except Exception as e:
+                logger.warning("msg %s caused exception", msg)
+                logger.exception(e)
 
 
 async def _client_handle_rpc_call(msg: dict):
-    sn = msg.get("__emit_sn__")
+    sn = msg.get("_sn_")
     if sn is None:
-        logger.warning("rpc call msg must contains __emit_sn__ key: %s", msg)
+        logger.warning("rpc call msg must contains _sn_ key: %s", msg)
         return
 
     waited = __rpc_calls__.get(sn)
     if waited is not None:
-        msg.pop('__emit_sn__')
+        msg.pop('_sn_')
         waited['result'] = msg
         waited['event'].set()
     else:
@@ -153,6 +168,8 @@ async def start(engine: Engine = Engine.IN_PROCESS, heart_beat=0, **kwargs):
     _heart_beat = heart_beat
 
     register(_rpc_client_channel, _client_handle_rpc_call)
+    register(_rpc_server_channel, _server_rpc_handler)
+
     if _engine == Engine.REDIS:
         dsn = kwargs.get("dsn")
         if not dsn:
@@ -174,7 +191,7 @@ async def start(engine: Engine = Engine.IN_PROCESS, heart_beat=0, **kwargs):
     _started = True
 
 
-async def emit(channel: str, message: dict = None):
+async def emit(channel: str, message: Any = None):
     """
     publish a message to channel.
     :param channel: the name of channel
@@ -183,6 +200,7 @@ async def emit(channel: str, message: dict = None):
     """
     global _registry, _engine, _pub_conn
 
+    message = pickle.dumps(message, protocol=4)
     if _engine == Engine.IN_PROCESS:
         queue = _registry.get(channel, {}).get("queue", None)
         if queue is None:
@@ -190,10 +208,10 @@ async def emit(channel: str, message: dict = None):
             return
         queue.put_nowait(message)
     elif _engine == Engine.REDIS:
-        await _pub_conn.publish_json(f"{channel}", message)
+        await _pub_conn.publish(f"{channel}", message)
 
 
-async def rpc_send(msg: dict):
+async def rpc_send(remote: Any):
     """
     emit msg and wait response back. The func will add __emit_sn__ to the dict, and the server should echo the serial
     number
@@ -205,8 +223,8 @@ async def rpc_send(msg: dict):
 
     """
     global __rpc_calls__
-    sn = uuid.uuid4().hex
-    msg['__emit_sn__'] = sn
+    sn = remote._sn_
+
     event = asyncio.Event()
 
     __rpc_calls__[sn] = {
@@ -214,20 +232,20 @@ async def rpc_send(msg: dict):
         "result": None
     }
 
-    await emit(_rpc_server_channel, msg)
+    await emit(_rpc_server_channel, pickle.dumps(remote, protocol=4))
     await event.wait()
     response = __rpc_calls__.get(sn, {}).get("result")
-    __rpc_calls__.pop(sn)
-    return response
-
-
-def rpc_register_handler(server_dispatcher: Callable):
-    register(_rpc_server_channel, server_dispatcher)
+    return pickle.loads(response.get('_data_'))
 
 
 async def rpc_respond(msg: dict):
     global __rpc_calls__
     await emit(_rpc_client_channel, msg)
+
+
+async def _server_rpc_handler(obj: bytes):
+    remote = pickle.loads(obj)
+    await remote.server_impl()
 
 
 def unsubscribe(channel: str, handler: Callable):

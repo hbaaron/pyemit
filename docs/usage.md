@@ -68,31 +68,32 @@ and set logging level to DEBUG, this should print a heart beat msg every 1 secon
  configurations and Redis setup.
 
 # Advanced topic
-## kind-of RPC call
+## RPC call
 ```python
 from pyemit import emit as e
+from pyemit.remote import Remote
 
-async def rpc_handler(msg):
-    if msg['command'] == 'add':
-        msg["result"] = msg["count"] + 1
-        msg.pop('count')
+class Sum(Remote):
+    def __init__(self, to_be_sum):
+        super().__init__()
+        self.to_be_sum = to_be_sum
 
-        await e.rpc_respond(msg)
+    async def server_impl(self, *args, **kwargs):
+        result = sum(self.to_be_sum)
+        await super().respond(result)
 
-async def test_redis_rpc_call():
-    e.rpc_register_handler(rpc_handler)
+async def test_rpc():
     await e.start(e.Engine.REDIS, dsn="redis://localhost")
-    response = await e.rpc_send({"command": "add", "count": 0})
-    assert response['result'] == 1
+    foo = Sum([0, 1, 2])
+    response = await foo()
+    assert response == 3
 ```
 
-At first you provide a server rpc call handler, and register it with `emit.rpc_register_handler`. Then you send your
- call to the server with `emit.rpc_send`. At server side, in your rpc call handler function, got client's message, do
-  the calculation, and finally respond to the client with `emit.rpc_respond`
+**step 1.** Subclass from `Remote`, and implement `Remote.server_impl` method. This one is supposed to be executed on
+ the server side. When calculation is done, then call `super().respond()` to send the result back to client
 
-You can also implement your own server message handling mech, especially if your choose languange other than python
-. In such case, you should listen to channel '__emit_rpc_server_channel__' and respond with
- '__emit_rpc_client_channel__'.
+ **step 2.** At client side, create instance of the subclass you defined (i.e., `foo` in the example), then by calling
+  `await foo()` you will get what you want.
 
  ## stop the message pump
  call `emit.stop` to stop the whole machine. call `emit.unsubscribe` to remove a handler.
