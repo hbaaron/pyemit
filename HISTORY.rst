@@ -6,3 +6,8 @@ History
 ------------------
 
 * First release on PyPI.
+
+0.3.0 (2020-04-25)
+-------------------
+* RPC feature implemented
+* use pickle instead of json for serialization for better performance. Currently protocol 4 is used.

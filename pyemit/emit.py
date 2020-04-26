@@ -2,7 +2,6 @@ import asyncio
 import logging
 import pickle
 import time
-import uuid
 from enum import IntEnum
 from typing import Callable, Any
 
@@ -26,6 +25,8 @@ _engine = Engine.IN_PROCESS
 __rpc_calls__ = {}
 _rpc_client_channel = '__emit_rpc_client_channel__'
 _rpc_server_channel = '__emit_rpc_server_channel__'
+_dsn = None
+_exchange = ''
 
 
 def on(event):
@@ -51,6 +52,7 @@ def register(event: str, handler: Callable):
     """
     global _registry
 
+    event = f"{_exchange}/{event}"
     item = _registry.get(event, {"handlers": set()})
     item['handlers'].add(handler)
     _registry[event] = item
@@ -116,19 +118,21 @@ async def _listen(event: str):
             finally:
                 queue.task_done()
     else:
-        while await queue.wait_message():
-            try:
+        import aioredis
+        try:
+            while await queue.wait_message():
                 msg = await queue.get()
-            except Exception as e:
-                logger.warning("connection error?")
-                # todo: try reconnect?
-                continue
-            try:
-                msg = pickle.loads(msg)
-                await get_and_invoke(event, msg)
-            except Exception as e:
-                logger.warning("msg %s caused exception", msg)
-                logger.exception(e)
+
+                try:
+                    msg = pickle.loads(msg)
+                    await get_and_invoke(event, msg)
+                except Exception as e:
+                    logger.warning("msg %s caused exception", msg)
+                    logger.exception(e)
+        except aioredis.errors.ConnectionClosedError:
+            logger.warning('connection with Redis server closed, retry connect')
+            await stop()
+            await start(Engine.REDIS, _heart_beat, dsn=_dsn)
 
 
 async def _client_handle_rpc_call(msg: dict):
@@ -157,15 +161,16 @@ async def start(engine: Engine = Engine.IN_PROCESS, heart_beat=0, **kwargs):
     Args:
         heart_beat:
     """
-    global _started, _pub_conn, _sub_conn, _registry, _heart_beat, _engine, _rpc_client_channel
+    global _started, _pub_conn, _sub_conn, _registry, _heart_beat, _engine, _rpc_client_channel, _dsn, _exchange
     if _started:
         logger.info("emit is already started.")
         return
 
-    logger.info("starting emit")
+    logger.info("starting emit with registry: %s", _registry)
 
     _engine = engine
     _heart_beat = heart_beat
+    _exchange = kwargs.get('exchange', '')
 
     register(_rpc_client_channel, _client_handle_rpc_call)
     register(_rpc_server_channel, _server_rpc_handler)
@@ -175,6 +180,7 @@ async def start(engine: Engine = Engine.IN_PROCESS, heart_beat=0, **kwargs):
         if not dsn:
             raise SyntaxError("when in aio-redis mode, dsn is required")
 
+        _dsn = dsn
         import aioredis
         _pub_conn = await aioredis.create_redis(dsn)
         _sub_conn = await aioredis.create_redis(dsn)
@@ -201,6 +207,7 @@ async def emit(channel: str, message: Any = None):
     global _registry, _engine, _pub_conn
 
     message = pickle.dumps(message, protocol=4)
+    channel = f"{_exchange}/{channel}"
     if _engine == Engine.IN_PROCESS:
         queue = _registry.get(channel, {}).get("queue", None)
         if queue is None:
@@ -208,22 +215,29 @@ async def emit(channel: str, message: Any = None):
             return
         queue.put_nowait(message)
     elif _engine == Engine.REDIS:
-        await _pub_conn.publish(f"{channel}", message)
+        import aioredis
+        try:
+            await _pub_conn.publish(f"{channel}", message)
+        except aioredis.errors.ConnectionClosedError:
+            logger.warning('connection with Redis server closed, retry connect')
+            await stop()
+            await start(Engine.REDIS, _heart_beat, dsn=_dsn)
+            raise ConnectionError
 
 
-async def rpc_send(remote: Any):
+async def rpc_send(remote) -> Any:
     """
     emit msg and wait response back. The func will add __emit_sn__ to the dict, and the server should echo the serial
     number
     back.
     Args:
-        msg:
+        remote:
 
     Returns:
 
     """
     global __rpc_calls__
-    sn = remote._sn_
+    sn = remote.sn
 
     event = asyncio.Event()
 
@@ -233,7 +247,11 @@ async def rpc_send(remote: Any):
     }
 
     await emit(_rpc_server_channel, pickle.dumps(remote, protocol=4))
-    await event.wait()
+    try:
+        await asyncio.wait_for(event.wait(), remote.timeout)
+    except asyncio.TimeoutError:
+        raise TimeoutError
+
     response = __rpc_calls__.get(sn, {}).get("result")
     return pickle.loads(response.get('_data_'))
 
@@ -285,12 +303,14 @@ async def stop():
     logger.info("stopping emit...")
     try:
         _started = False
-        for binding in _registry.values():
-            binding['queue'] = None
 
         if _engine == Engine.REDIS:
             _sub_conn.close()
             await _sub_conn.wait_closed()
+
+        for binding in _registry.values():
+            binding['queue'] = None
+
     except Exception as e:
         logger.exception(e)
 

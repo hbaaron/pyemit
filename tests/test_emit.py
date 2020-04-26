@@ -41,10 +41,8 @@ class Sum(Remote):
 
 
 class TestEmit(unittest.TestCase):
-
     def setUp(self) -> None:
         self.echo_times = 0
-        e._started = False
 
     def tearDown(self) -> None:
         asyncio.run(e.stop())
@@ -99,7 +97,7 @@ class TestEmit(unittest.TestCase):
 
     @async_test
     async def test_redis_rpc_call(self):
-        await e.start(e.Engine.REDIS, dsn="redis://localhost")
+        await e.start(e.Engine.REDIS, dsn="redis://localhost", exchange='unittest')
         foo = Sum([0, 1, 2])
         response = await foo()
         self.assertEqual(3, response)
@@ -108,7 +106,7 @@ class TestEmit(unittest.TestCase):
 
     @async_test
     async def test_inprocess_rpc_call(self):
-        await e.start()
+        await e.start(exchange='unittest')
         foo = Sum([0, 1, 2, 3, 4])
         response = await foo()
         self.assertEqual(10, response)

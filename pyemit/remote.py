@@ -18,9 +18,12 @@ logger = logging.getLogger(__name__)
 
 
 class Remote(object):
-    def __init__(self):
+    _proto_ = 4
+
+    def __init__(self, timeout=10):
         self._sn_ = uuid.uuid4().hex
         self._ver_ = '0.1'
+        self._timeout_ = timeout
 
     def __str__(self):
         def default(obj):
@@ -31,11 +34,13 @@ class Remote(object):
     def __repr__(self):
         return f"{self.__class__} 0x{id(self):0x}\n{self.__str__()}"
 
-    def serialize(self):
-        """
-        pickle_protocol 4 support from python 3.4
-        """
-        return pickle.dumps(self, protocol=4)
+    @property
+    def sn(self):
+        return self._sn_
+
+    @property
+    def timeout(self):
+        return self._timeout_
 
     @staticmethod
     def loads(s) -> 'Remote':
@@ -50,7 +55,7 @@ class Remote(object):
     async def respond(self, result: Any):
         response = {
             '_sn_':   self._sn_,
-            '_data_': pickle.dumps(result, protocol=4)
+            '_data_': pickle.dumps(result, protocol=Remote._proto_)
         }
 
         await rpc_respond(response)
