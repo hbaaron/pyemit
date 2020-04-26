@@ -49,7 +49,7 @@ class TestEmit(unittest.TestCase):
 
     @async_test
     async def test_decorator(self):
-        await e.start(engine=e.Engine.REDIS, dsn="redis://localhost")
+        await e.start(e.Engine.REDIS, dsn="redis://localhost", start_server=True)
         logger.info(f"{e._registry}")
         await e.emit("test_decorator")
         await asyncio.sleep(0.2)
@@ -78,7 +78,7 @@ class TestEmit(unittest.TestCase):
 
     @async_test
     async def test_aio_redis_engine(self):
-        await e.start(e.Engine.REDIS, dsn="redis://localhost")
+        await e.start(e.Engine.REDIS, dsn="redis://localhost", start_server=True)
         e.register('echo', self.on_echo)
 
         await asyncio.sleep(0.5)
@@ -92,12 +92,12 @@ class TestEmit(unittest.TestCase):
     @async_test
     async def test_heart_beat(self):
         e.register("hi", self.on_echo)
-        await e.start(e.Engine.REDIS, heart_beat=0.5, dsn="redis://localhost")
+        await e.start(e.Engine.REDIS, heart_beat=0.5, dsn="redis://localhost", start_server=True)
         await asyncio.sleep(1)
 
     @async_test
     async def test_redis_rpc_call(self):
-        await e.start(e.Engine.REDIS, dsn="redis://localhost", exchange='unittest')
+        await e.start(e.Engine.REDIS, dsn="redis://localhost", start_server=True, exchange='unittest')
         foo = Sum([0, 1, 2])
         response = await foo()
         self.assertEqual(3, response)
@@ -122,7 +122,7 @@ class TestEmit(unittest.TestCase):
     @async_test
     async def test_redis_stop(self):
         e.register("test_stop", self.on_echo)
-        await e.start(engine=e.Engine.REDIS, heart_beat=0.3, dsn="redis://localhost")
+        await e.start(e.Engine.REDIS, heart_beat=0.3, start_server=True, dsn="redis://localhost")
 
         await e.emit("test_stop", {"msg": "check this in log"})
         await asyncio.sleep(0.1)

@@ -27,6 +27,7 @@ _rpc_client_channel = '__emit_rpc_client_channel__'
 _rpc_server_channel = '__emit_rpc_server_channel__'
 _dsn = None
 _exchange = ''
+_start_server = False
 
 
 def on(event):
@@ -70,27 +71,27 @@ async def _bind(event: str):
         if item.get('queue') is None:
             queue = asyncio.Queue()
             await queue.join()
-            logger.info("msg %s is bound to local queue %s", event, queue)
+            logger.debug("msg %s is bound to local queue %s", event, queue)
             item['queue'] = queue
         else:
-            logger.info("msg %s is already bound to local queue, skipped", event)
+            logger.debug("msg %s is already bound to local queue, skipped", event)
     else:
         if item.get('queue') is None:
             response = await _sub_conn.subscribe(event)
             if response:
                 item['queue'] = response[0]
-                logger.info("msg %s is bound to remote queue %s", event, response[0])
+                logger.debug("msg %s is bound to remote queue %s", event, response[0])
             else:
                 logger.warning("failed to bind msg %s to remote queue", event)
         else:
-            logger.info("msg %s is already bound to remote queue, skipped", event)
+            logger.debug("msg %s is already bound to remote queue, skipped", event)
 
     asyncio.create_task(_listen(event))
 
 
 async def _listen(event: str):
     global _registry, _engine
-    logger.info("listening on msg %s", event)
+    logger.info("listening on event %s", event)
 
     async def get_and_invoke(name, message: dict):
         # handlers may add later, so we put call in the loop
@@ -132,7 +133,7 @@ async def _listen(event: str):
         except aioredis.errors.ConnectionClosedError:
             logger.warning('connection with Redis server closed, retry connect')
             await stop()
-            await start(Engine.REDIS, _heart_beat, dsn=_dsn)
+            await start(Engine.REDIS, heart_beat=_heart_beat, dsn=_dsn, start_server=_start_server)
 
 
 async def _client_handle_rpc_call(msg: dict):
@@ -150,18 +151,15 @@ async def _client_handle_rpc_call(msg: dict):
         logger.warning("emit received unsolicited message: %s", msg)
 
 
-async def start(engine: Engine = Engine.IN_PROCESS, heart_beat=0, **kwargs):
+async def start(engine: Engine=Engine.IN_PROCESS, start_server=False, heart_beat=0, **kwargs):
     """
-
-    :param engine: one of IN_PROCESS or AIO_REDIS
-    :param heart_beat: if engine is AIO_REDIS, and heart_beat > 0, then emit will send heartbeat automatically
-    :param kwargs:
-    :return:
 
     Args:
+        engine:
+        start_server:
         heart_beat:
     """
-    global _started, _pub_conn, _sub_conn, _registry, _heart_beat, _engine, _rpc_client_channel, _dsn, _exchange
+    global _started, _pub_conn, _sub_conn, _registry, _heart_beat, _engine, _rpc_client_channel, _dsn, _exchange, _start_server
     if _started:
         logger.info("emit is already started.")
         return
@@ -171,22 +169,28 @@ async def start(engine: Engine = Engine.IN_PROCESS, heart_beat=0, **kwargs):
     _engine = engine
     _heart_beat = heart_beat
     _exchange = kwargs.get('exchange', '')
-
-    register(_rpc_client_channel, _client_handle_rpc_call)
-    register(_rpc_server_channel, _server_rpc_handler)
+    _start_server = start_server
+    _dsn = kwargs.get("dsn", None)
 
     if _engine == Engine.REDIS:
-        dsn = kwargs.get("dsn")
-        if not dsn:
-            raise SyntaxError("when in aio-redis mode, dsn is required")
+        if not all([_dsn, _start_server]):
+            raise SyntaxError("When engine is REDIS, both 'dsn' and 'mode' are required.")
 
-        _dsn = dsn
         import aioredis
-        _pub_conn = await aioredis.create_redis(dsn)
-        _sub_conn = await aioredis.create_redis(dsn)
+
+        register(_rpc_client_channel, _client_handle_rpc_call)
+        if _start_server:
+            register(_rpc_server_channel, _server_rpc_handler)
+
+        _pub_conn = await aioredis.create_redis(_dsn)
+        _sub_conn = await aioredis.create_redis(_dsn)
 
         if _heart_beat > 0:
             register('heartbeat', _on_heart_beat)
+    else:
+        register(_rpc_client_channel, _client_handle_rpc_call)
+        register(_rpc_server_channel, _server_rpc_handler)
+
     # bind registered channels
     for channel in _registry.keys():
         await _bind(channel)
@@ -221,7 +225,7 @@ async def emit(channel: str, message: Any = None):
         except aioredis.errors.ConnectionClosedError:
             logger.warning('connection with Redis server closed, retry connect')
             await stop()
-            await start(Engine.REDIS, _heart_beat, dsn=_dsn)
+            await start(Engine.REDIS, heart_beat=_heart_beat, dsn=_dsn, start_server=_start_server)
             raise ConnectionError
 
 
