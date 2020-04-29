@@ -1,21 +1,19 @@
 import asyncio
 import datetime
 import enum
+import logging
 import unittest
-import pickle
+import os
 
 import pyemit.emit as e
 from pyemit.remote import Remote
 from tests.helper import async_test
-
-import logging
 
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(level=logging.INFO)
 
 _received_test_decorator_msgs = 0
-
 
 @e.on('test_decorator')
 async def on_test_decorator(msg):
@@ -43,13 +41,14 @@ class Sum(Remote):
 class TestEmit(unittest.TestCase):
     def setUp(self) -> None:
         self.echo_times = 0
+        self.dsn = os.environ['dsn']
 
     def tearDown(self) -> None:
         asyncio.run(e.stop())
 
     @async_test
     async def test_decorator(self):
-        await e.start(e.Engine.REDIS, dsn="redis://localhost", start_server=True)
+        await e.start(e.Engine.REDIS, dsn=self.dsn, start_server=True)
         logger.info(f"{e._registry}")
         await e.emit("test_decorator")
         await asyncio.sleep(0.2)
@@ -78,7 +77,7 @@ class TestEmit(unittest.TestCase):
 
     @async_test
     async def test_aio_redis_engine(self):
-        await e.start(e.Engine.REDIS, dsn="redis://localhost", start_server=True)
+        await e.start(e.Engine.REDIS, dsn=self.dsn, start_server=True)
         e.register('echo', self.on_echo)
 
         await asyncio.sleep(0.5)
@@ -92,14 +91,14 @@ class TestEmit(unittest.TestCase):
     @async_test
     async def test_heart_beat(self):
         e.register("hi", self.on_echo)
-        await e.start(e.Engine.REDIS, heart_beat=0.5, dsn="redis://localhost", start_server=True)
+        await e.start(e.Engine.REDIS, heart_beat=0.5, dsn=self.dsn, start_server=True)
         await asyncio.sleep(1)
 
     @async_test
     async def test_redis_rpc_call(self):
-        await e.start(e.Engine.REDIS, dsn="redis://localhost", start_server=True, exchange='unittest')
+        await e.start(e.Engine.REDIS, dsn=self.dsn, start_server=True, exchange='unittest')
         foo = Sum([0, 1, 2])
-        response = await foo()
+        response = await foo.invoke()
         self.assertEqual(3, response)
 
         await asyncio.sleep(0.1)
@@ -108,7 +107,7 @@ class TestEmit(unittest.TestCase):
     async def test_inprocess_rpc_call(self):
         await e.start(exchange='unittest')
         foo = Sum([0, 1, 2, 3, 4])
-        response = await foo()
+        response = await foo.invoke()
         self.assertEqual(10, response)
 
         await asyncio.sleep(0.1)
@@ -122,7 +121,7 @@ class TestEmit(unittest.TestCase):
     @async_test
     async def test_redis_stop(self):
         e.register("test_stop", self.on_echo)
-        await e.start(e.Engine.REDIS, heart_beat=0.3, start_server=True, dsn="redis://localhost")
+        await e.start(e.Engine.REDIS, heart_beat=0.3, start_server=True, dsn=self.dsn)
 
         await e.emit("test_stop", {"msg": "check this in log"})
         await asyncio.sleep(0.1)

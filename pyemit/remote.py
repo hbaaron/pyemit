@@ -46,7 +46,7 @@ class Remote(object):
     def loads(s) -> 'Remote':
         return pickle.loads(s)
 
-    async def __call__(self):
+    async def invoke(self):
         return await rpc_send(self)
 
     async def server_impl(self):

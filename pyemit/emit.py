@@ -71,7 +71,6 @@ async def _bind(event: str):
         if item.get('queue') is None:
             queue = asyncio.Queue()
             await queue.join()
-            logger.debug("msg %s is bound to local queue %s", event, queue)
             item['queue'] = queue
         else:
             logger.debug("msg %s is already bound to local queue, skipped", event)
@@ -80,7 +79,6 @@ async def _bind(event: str):
             response = await _sub_conn.subscribe(event)
             if response:
                 item['queue'] = response[0]
-                logger.debug("msg %s is bound to remote queue %s", event, response[0])
             else:
                 logger.warning("failed to bind msg %s to remote queue", event)
         else:
@@ -91,15 +89,16 @@ async def _bind(event: str):
 
 async def _listen(event: str):
     global _registry, _engine
-    logger.info("listening on event %s", event)
 
     async def get_and_invoke(name, message: dict):
         # handlers may add later, so we put call in the loop
         handlers = _registry.get(name, {}).get("handlers", [])
         if not handlers:
             logger.debug("discarded msg due to no handlers attached: %s", message)
+            return
 
         for func in handlers:
+            logger.debug("%s is handling message: %s", message)
             await func(message)
 
     queue = _registry.get(event, {}).get('queue')
@@ -107,11 +106,13 @@ async def _listen(event: str):
         logger.warning("failed to found queue to listen for msg %s", event)
         return
 
+    logger.info("listening on %s", queue)
     if _engine == Engine.IN_PROCESS:
         while True:
             msg = await queue.get()
             try:
                 msg = pickle.loads(msg)
+                logger.debug('emit received msg: %s', msg)
                 await get_and_invoke(event, msg)
             except Exception as e:
                 logger.warning("msg %s caused exception", msg)
@@ -126,6 +127,7 @@ async def _listen(event: str):
 
                 try:
                     msg = pickle.loads(msg)
+                    logger.debug('emit received msg: %s', msg)
                     await get_and_invoke(event, msg)
                 except Exception as e:
                     logger.warning("msg %s caused exception", msg)
@@ -148,10 +150,10 @@ async def _client_handle_rpc_call(msg: dict):
         waited['result'] = msg
         waited['event'].set()
     else:
-        logger.warning("emit received unsolicited message: %s", msg)
+        logger.debug("emit received unsolicited message: %s", sn)
 
 
-async def start(engine: Engine=Engine.IN_PROCESS, start_server=False, heart_beat=0, **kwargs):
+async def start(engine: Engine = Engine.IN_PROCESS, start_server=False, heart_beat=0, **kwargs):
     """
 
     Args:
@@ -159,12 +161,13 @@ async def start(engine: Engine=Engine.IN_PROCESS, start_server=False, heart_beat
         start_server:
         heart_beat:
     """
-    global _started, _pub_conn, _sub_conn, _registry, _heart_beat, _engine, _rpc_client_channel, _dsn, _exchange, _start_server
+    global _started, _pub_conn, _sub_conn, _registry, _heart_beat, _engine, _rpc_client_channel, _dsn, _exchange, \
+        _start_server
     if _started:
         logger.info("emit is already started.")
         return
 
-    logger.info("starting emit with registry: %s", _registry)
+    logger.info("starting pyemit with registry: %s", _registry)
 
     _engine = engine
     _heart_beat = heart_beat
@@ -173,8 +176,8 @@ async def start(engine: Engine=Engine.IN_PROCESS, start_server=False, heart_beat
     _dsn = kwargs.get("dsn", None)
 
     if _engine == Engine.REDIS:
-        if not all([_dsn, _start_server]):
-            raise SyntaxError("When engine is REDIS, both 'dsn' and 'mode' are required.")
+        if _dsn is None:
+            raise SyntaxError("When engine is REDIS, param 'dsn' is required.")
 
         import aioredis
 
@@ -210,6 +213,7 @@ async def emit(channel: str, message: Any = None):
     """
     global _registry, _engine, _pub_conn
 
+    logger.debug('emit send message: %s', message)
     message = pickle.dumps(message, protocol=4)
     channel = f"{_exchange}/{channel}"
     if _engine == Engine.IN_PROCESS:

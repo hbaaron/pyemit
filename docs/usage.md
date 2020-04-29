@@ -85,7 +85,7 @@ class Sum(Remote):
 async def test_rpc():
     await e.start(e.Engine.REDIS, dsn="redis://localhost")
     foo = Sum([0, 1, 2])
-    response = await foo()
+    response = await foo.invoke()
     assert response == 3
 ```
 
@@ -93,7 +93,9 @@ async def test_rpc():
  the server side. When calculation is done, then call `super().respond()` to send the result back to client
 
  **step 2.** At client side, create instance of the subclass you defined (i.e., `foo` in the example), then by calling
-  `await foo()` you will get what you want.
+  `await foo.invoke()` you will get what you want.
+
+  pass parameters during construct of Remote object if any, they can be access at server side by self object.
 
  ## stop the message pump
  call `emit.stop` to stop the whole machine. call `emit.unsubscribe` to remove a handler.
