@@ -281,8 +281,9 @@ def unsubscribe(channel: str, handler: Callable):
     :param handler:
     :return:
     """
-    global _registry, _engine
+    global _registry, _engine, _exchange
 
+    channel = f"{_exchange}/{channel}"
     if channel not in _registry.keys():
         logger.warning("%s is not registered", channel)
         return
@@ -309,17 +310,14 @@ async def _on_heart_beat(msg):
 async def stop():
     global _started, _engine, _registry
     logger.info("stopping emit...")
-    try:
-        _started = False
+    _started = False
 
-        if _engine == Engine.REDIS:
-            _sub_conn.close()
-            await _sub_conn.wait_closed()
+    if _engine == Engine.REDIS:
+        _sub_conn.close()
+        await _sub_conn.wait_closed()
 
-        for binding in _registry.values():
-            binding['queue'] = None
+    for binding in _registry.values():
+        binding['queue'] = None
 
-    except Exception as e:
-        logger.exception(e)
 
     logger.info("emit stopped.")

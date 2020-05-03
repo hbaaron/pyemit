@@ -4,6 +4,7 @@ import enum
 import logging
 import unittest
 import os
+from unittest import mock
 
 import pyemit.emit as e
 from pyemit.remote import Remote
@@ -15,11 +16,19 @@ logging.basicConfig(level=logging.INFO)
 
 _received_test_decorator_msgs = 0
 
+
 @e.on('test_decorator')
 async def on_test_decorator(msg):
     global _received_test_decorator_msgs
     logger.info("on_test_decorator")
     _received_test_decorator_msgs += 1
+
+
+def check_log(log_func, msg: str):
+    for arg in log_func.call_args.args:
+        if arg.find(msg) != -1:
+                return True
+    return False
 
 
 class MyEnum(enum.Enum):
@@ -41,7 +50,7 @@ class Sum(Remote):
 class TestEmit(unittest.TestCase):
     def setUp(self) -> None:
         self.echo_times = 0
-        self.dsn = os.environ['dsn']
+        self.dsn = "redis://localhost"
 
     def tearDown(self) -> None:
         asyncio.run(e.stop())
@@ -98,6 +107,7 @@ class TestEmit(unittest.TestCase):
     async def test_redis_rpc_call(self):
         await e.start(e.Engine.REDIS, dsn=self.dsn, start_server=True, exchange='unittest')
         foo = Sum([0, 1, 2])
+        print(foo)
         response = await foo.invoke()
         self.assertEqual(3, response)
 
@@ -127,3 +137,41 @@ class TestEmit(unittest.TestCase):
         await asyncio.sleep(0.1)
         e.unsubscribe("test_stop", self.on_echo)
         await e.emit("test_stop", {"msg": "nobody will handle this"})
+
+    @async_test
+    async def test_unsubscribe(self):
+        e.register("test_unsub", self.on_echo)
+        self.assertIn(self.on_echo, e._registry['/test_unsub']['handlers'])
+        await e.start()
+        e.unsubscribe("test_unsub", self.on_echo)
+        self.assertNotIn(self.on_echo, e._registry['/test_unsub']['handlers'])
+
+        e.register('test_unsub', self.on_echo)
+        logger = logging.getLogger('pyemit.emit')
+        logger.warning = mock.MagicMock(name='warning')
+        e.unsubscribe('test_unsub', self.test_unsubscribe)
+        self.assertTrue(check_log(logger.warning, 'is not registered as handler of'))
+
+    @async_test
+    async def test_error_handling(self):
+        # handler is not registered
+        await e.start()
+
+        logger = logging.getLogger('pyemit.emit')
+        logger.warning = mock.MagicMock(name='warning')
+        await e.emit("test_not_registered")
+        self.assertTrue(check_log(logger.warning, 'test_not_registered has no listener'))
+
+        # ConnectionClosedError when publish
+        await e.stop()
+        await e.start(e.Engine.REDIS, dsn=self.dsn)
+        e._pub_conn.publish = mock.MagicMock()
+        import aioredis
+        e._pub_conn.publish.side_effect = aioredis.errors.ConnectionClosedError()
+        e.register('mock_connection_closed', self.on_echo)
+        try:
+            await e.emit("this should raise connectionclosederror")
+            self.assertTrue(False)
+        except ConnectionError as error:
+            logger.exception(error)
+            self.assertTrue(True)

@@ -7,13 +7,14 @@ py-emit
         :target: https://pypi.python.org/pypi/pyemit
 
 .. image:: https://img.shields.io/travis/jieyu-tech/pyemit.svg
-        :target: https://travis-ci.com/jieyu-tech/pyemit
+        :target: https://travis-ci.com/zillionare/pyemit
 
 .. image:: https://readthedocs.org/projects/pyemit/badge/?version=latest
         :target: https://pyemit.readthedocs.io/en/latest/?badge=latest
         :alt: Documentation Status
 
-
+.. image:: https://codecov.io/gh/zillionare/pyemit/branch/master/graph/badge.svg
+  :target: https://codecov.io/gh/zillionare/pyemit
 
 
 light-weight asynchronous event system, support in-process communication, remote message server (currently redis
