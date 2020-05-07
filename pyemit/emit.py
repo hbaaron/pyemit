@@ -26,34 +26,35 @@ __rpc_calls__ = {}
 _rpc_client_channel = '__emit_rpc_client_channel__'
 _rpc_server_channel = '__emit_rpc_server_channel__'
 _dsn = None
-_exchange = ''
 _start_server = False
 
 
-def on(event):
+def on(event, exchange=""):
     """
     提供了消息注册的装饰器实现
     Args:
         event:
+        exchange:
     Returns:
 
     """
 
     def decorator(func):
-        register(event, func)
+        register(event, func, exchange)
 
     return decorator
 
 
-def register(event: str, handler: Callable):
+def register(event: str, handler: Callable, exchange=""):
     """
     :param event:
     :param handler:
+    :param exchange:
     :return:
     """
     global _registry
 
-    event = f"{_exchange}/{event}"
+    event = f"{exchange}/{event}"
     item = _registry.get(event, {"handlers": set()})
     item['handlers'].add(handler)
     _registry[event] = item
@@ -98,7 +99,7 @@ async def _listen(event: str):
             return
 
         for func in handlers:
-            logger.debug("%s is handling message: %s", message)
+            logger.debug("%s is handling message: %s", func.__name__, message)
             await func(message)
 
     queue = _registry.get(event, {}).get('queue')
@@ -161,7 +162,7 @@ async def start(engine: Engine = Engine.IN_PROCESS, start_server=False, heart_be
         start_server:
         heart_beat:
     """
-    global _started, _pub_conn, _sub_conn, _registry, _heart_beat, _engine, _rpc_client_channel, _dsn, _exchange, \
+    global _started, _pub_conn, _sub_conn, _registry, _heart_beat, _engine, _rpc_client_channel, _dsn, \
         _start_server
     if _started:
         logger.info("emit is already started.")
@@ -171,7 +172,6 @@ async def start(engine: Engine = Engine.IN_PROCESS, start_server=False, heart_be
 
     _engine = engine
     _heart_beat = heart_beat
-    _exchange = kwargs.get('exchange', '')
     _start_server = start_server
     _dsn = kwargs.get("dsn", None)
 
@@ -204,7 +204,7 @@ async def start(engine: Engine = Engine.IN_PROCESS, start_server=False, heart_be
     _started = True
 
 
-async def emit(channel: str, message: Any = None):
+async def emit(channel: str, message: Any = None, exchange=""):
     """
     publish a message to channel.
     :param channel: the name of channel
@@ -213,9 +213,11 @@ async def emit(channel: str, message: Any = None):
     """
     global _registry, _engine, _pub_conn
 
-    logger.debug('emit send message: %s', message)
-    message = pickle.dumps(message, protocol=4)
-    channel = f"{_exchange}/{channel}"
+    channel = f"{exchange}/{channel}"
+    logger.debug('send message on channel %s: %s', channel, message)
+    if not isinstance(message, bytes):
+        message = pickle.dumps(message, protocol=4)
+
     if _engine == Engine.IN_PROCESS:
         queue = _registry.get(channel, {}).get("queue", None)
         if queue is None:
@@ -254,6 +256,7 @@ async def rpc_send(remote) -> Any:
         "result": None
     }
 
+    logger.debug("sending rpc msg to server: %s", sn)
     await emit(_rpc_server_channel, pickle.dumps(remote, protocol=4))
     try:
         await asyncio.wait_for(event.wait(), remote.timeout)
@@ -266,24 +269,24 @@ async def rpc_send(remote) -> Any:
 
 async def rpc_respond(msg: dict):
     global __rpc_calls__
+    logger.debug("responding rpc msg to client: %s", msg['_sn_'])
     await emit(_rpc_client_channel, msg)
 
 
-async def _server_rpc_handler(obj: bytes):
-    remote = pickle.loads(obj)
+async def _server_rpc_handler(remote):
     await remote.server_impl()
 
 
-def unsubscribe(channel: str, handler: Callable):
+def unsubscribe(channel: str, handler: Callable, exchange=""):
     """
     stop subscribe message from channel
     :param channel:
     :param handler:
     :return:
     """
-    global _registry, _engine, _exchange
+    global _registry, _engine
 
-    channel = f"{_exchange}/{channel}"
+    channel = f"{exchange}/{channel}"
     if channel not in _registry.keys():
         logger.warning("%s is not registered", channel)
         return
@@ -318,6 +321,5 @@ async def stop():
 
     for binding in _registry.values():
         binding['queue'] = None
-
 
     logger.info("emit stopped.")

@@ -25,8 +25,8 @@ async def on_test_decorator(msg):
 
 
 def check_log(log_func, msg: str):
-    for arg in log_func.call_args.args:
-        if arg.find(msg) != -1:
+    for call in log_func.call_args.call_list():
+        if call.find(msg) != -1:
                 return True
     return False
 
