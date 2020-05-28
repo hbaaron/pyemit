@@ -99,7 +99,8 @@ async def _listen(event: str):
             return
 
         for func in handlers:
-            logger.debug("%s is handling message: %s", func.__name__, message)
+            func_name = getattr(func, "__name__", None)
+            logger.debug("%s is handling message: %s", func_name or func, message)
             await func(message)
 
     queue = _registry.get(event, {}).get('queue')
