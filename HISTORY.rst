@@ -15,3 +15,7 @@ History
 0.4.0 (2020-04-30)
 -------------------
 * Change signature of `Remote.execute` to `Remote.invoke`
+
+0.4.5 (2020-06-15)
+--------------------
+* fixed #1
