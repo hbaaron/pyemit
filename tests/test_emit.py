@@ -127,6 +127,9 @@ class TestEmit(unittest.TestCase):
         e.register("test_stop", self.on_echo)
         await e.start()
         await e.stop()
+        for binding in e._registry.values():
+            self.assertIsNone(binding['queue'])
+            self.assertIsNone(binding['handlers'])
 
     @async_test
     async def test_redis_stop(self):

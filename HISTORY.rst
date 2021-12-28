@@ -19,3 +19,7 @@ History
 0.4.5 (2020-06-15)
 --------------------
 * fixed #1
+
+0.4.6 (2021-12-28)
+--------------------
+* Fixed that the stop method did not empty hannlers
