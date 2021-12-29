@@ -64,6 +64,25 @@ def register(event: str, handler: Callable, exchange=""):
         asyncio.create_task(_bind(event))
 
 
+async def async_register(event: str, handler: Callable, exchange=""):
+    """
+    :param event:
+    :param handler:
+    :param exchange:
+    :return:
+    """
+    global _registry
+
+    event = f"{exchange}/{event}"
+    item = _registry.get(event, {"handlers": set()})
+    item['handlers'].add(handler)
+    _registry[event] = item
+
+    if _started:
+        # in this case, we need manually bind msg, handler with a queue/channel
+        await _bind(event)
+
+
 async def _bind(event: str):
     global _registry, _engine, _sub_conn, _pub_conn
 

@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 _received_test_decorator_msgs = 0
 
 
-@e.on('test_decorator')
+# @e.on('test_decorator')
 async def on_test_decorator(msg):
     global _received_test_decorator_msgs
     logger.info("on_test_decorator")
@@ -56,9 +56,25 @@ class TestEmit(unittest.TestCase):
         asyncio.run(e.stop())
 
     @async_test
+    async def test_async_register(self):
+        temp = []
+        channle = "test"
+        params = "11111111111111111111"
+
+        async def handle(params):
+            temp.append(params)
+
+        await e.start(e.Engine.REDIS, dsn=self.dsn, start_server=True)
+        await e.async_register(channle, handle)
+        await e.emit(channle, params)
+        await asyncio.sleep(0.5)
+        self.assertEqual(params, temp[0])
+
+    @async_test
     async def test_decorator(self):
         await e.start(e.Engine.REDIS, dsn=self.dsn, start_server=True)
         logger.info(f"{e._registry}")
+        await e.async_register("test_decorator", on_test_decorator)
         await e.emit("test_decorator")
         await asyncio.sleep(0.2)
         self.assertEqual(_received_test_decorator_msgs, 1)
@@ -137,7 +153,7 @@ class TestEmit(unittest.TestCase):
         for binding in e._registry.values():
             self.assertFalse(binding['queue'])
             self.assertFalse(binding['handlers'])
-            
+
     @async_test
     async def test_redis_stop(self):
         e.register("test_stop", self.on_echo)
