@@ -322,6 +322,6 @@ async def stop():
 
     for binding in _registry.values():
         binding['queue'] = None
-        binding['handlers'] = None
+        binding['handlers'] = set()
 
     logger.info("emit stopped.")
