@@ -29,6 +29,7 @@ setup(
         'Natural Language :: English',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
     ],
     description="轻量级的异步消息通信，支持进程内消息通信，以及基于REDIS PUBSUB的远程消息。提供了进一步封装RPC的底层机制。",
     install_requires=requirements,
@@ -42,6 +43,6 @@ setup(
     test_suite='tests',
     tests_require=test_requirements,
     url='https://github.com/hbaaron/pyemit',
-    version='0.4.8',
+    version='0.4.9',
     zip_safe=False,
 )

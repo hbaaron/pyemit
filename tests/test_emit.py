@@ -48,12 +48,12 @@ class Sum(Remote):
 
 
 class TestEmit(unittest.TestCase):
-    def setUp(self) -> None:
+    async def asyncSetUp(self) -> None:
         self.echo_times = 0
         self.dsn = "redis://localhost"
 
-    def tearDown(self) -> None:
-        asyncio.run(e.stop())
+    async def asyncTearDown(self) -> None:
+        await e.stop()
 
     @async_test
     async def test_async_register(self):

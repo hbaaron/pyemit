@@ -201,18 +201,18 @@ async def start(engine: Engine = Engine.IN_PROCESS, start_server=False, heart_be
 
         import aioredis
 
-        register(_rpc_client_channel, _client_handle_rpc_call)
+        await async_register(_rpc_client_channel, _client_handle_rpc_call)
         if _start_server:
-            register(_rpc_server_channel, _server_rpc_handler)
+            await async_register(_rpc_server_channel, _server_rpc_handler)
 
-        _pub_conn = await aioredis.create_redis(_dsn)
-        _sub_conn = await aioredis.create_redis(_dsn)
+        _pub_conn = await aioredis.create_redis_pool(_dsn)
+        _sub_conn = await aioredis.create_redis_pool(_dsn)
 
         if _heart_beat > 0:
-            register('heartbeat', _on_heart_beat)
+            await async_register('heartbeat', _on_heart_beat)
     else:
-        register(_rpc_client_channel, _client_handle_rpc_call)
-        register(_rpc_server_channel, _server_rpc_handler)
+        await async_register(_rpc_client_channel, _client_handle_rpc_call)
+        await async_register(_rpc_server_channel, _server_rpc_handler)
 
     # bind registered channels
     for channel in _registry.keys():
