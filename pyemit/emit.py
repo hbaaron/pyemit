@@ -239,6 +239,7 @@ async def emit(channel: str, message: Any = None, exchange=""):
 
     if not _started:
         logger.warning("emit is stopped or nor started yet.")
+        return
 
     channel = f"{exchange}/{channel}"
     logger.debug('send message on channel %s: %s', channel, message)
