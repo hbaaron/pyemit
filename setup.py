@@ -11,7 +11,7 @@ with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
 requirements = [
-    'aioredis==1.3.1'
+    'aioredis>=2.0.1'
 ]
 
 setup_requirements = [ ]
@@ -43,6 +43,6 @@ setup(
     test_suite='tests',
     tests_require=test_requirements,
     url='https://github.com/hbaaron/pyemit',
-    version='0.4.9',
+    version='0.5.0',
     zip_safe=False,
 )

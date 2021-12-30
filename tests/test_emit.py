@@ -193,11 +193,11 @@ class TestEmit(unittest.TestCase):
         await e.start(e.Engine.REDIS, dsn=self.dsn)
         e._pub_conn.publish = mock.MagicMock()
         import aioredis
-        e._pub_conn.publish.side_effect = aioredis.errors.ConnectionClosedError()
+        e._pub_conn.publish.side_effect = aioredis.exceptions.ConnectionError()
         e.register('mock_connection_closed', self.on_echo)
         try:
             await e.emit("this should raise connectionclosederror")
             self.assertTrue(False)
-        except ConnectionError as error:
+        except aioredis.exceptions.ConnectionError as error:
             logger.exception(error)
             self.assertTrue(True)

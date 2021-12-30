@@ -31,3 +31,8 @@ History
 0.4.8 (2021-12-29)
 --------------------
 * Add asynchronous registration
+
+
+0.5.0 (2021-12-30)
+--------------------
+* Update aioredis version to 2.0.1

@@ -4,6 +4,7 @@ import pickle
 import time
 from enum import IntEnum
 from typing import Callable, Any
+from aioredis.exceptions import ConnectionError
 
 logger = logging.getLogger(__name__)
 
@@ -96,11 +97,10 @@ async def _bind(event: str):
             logger.debug("msg %s is already bound to local queue, skipped", event)
     else:
         if item.get('queue') is None:
-            response = await _sub_conn.subscribe(event)
-            if response:
-                item['queue'] = response[0]
-            else:
-                logger.warning("failed to bind msg %s to remote queue", event)
+            # 忽略其他线程的订阅消息
+            pubsub = _sub_conn.pubsub(ignore_subscribe_messages=True)
+            await pubsub.subscribe(event)
+            item['queue'] = pubsub
         else:
             logger.debug("msg %s is already bound to remote queue, skipped", event)
 
@@ -143,9 +143,8 @@ async def _listen(event: str):
     else:
         import aioredis
         try:
-            while await queue.wait_message():
-                msg = await queue.get()
-
+            async for msg in queue.listen():
+                msg = msg.get("data")
                 try:
                     msg = pickle.loads(msg)
                     logger.debug('emit received msg: %s', msg)
@@ -153,7 +152,8 @@ async def _listen(event: str):
                 except Exception as e:
                     logger.warning("msg %s caused exception", msg)
                     logger.exception(e)
-        except aioredis.errors.ConnectionClosedError:
+
+        except ConnectionError:
             logger.warning('connection with Redis server closed, retry connect')
             await stop()
             await start(Engine.REDIS, heart_beat=_heart_beat, dsn=_dsn, start_server=_start_server)
@@ -205,8 +205,8 @@ async def start(engine: Engine = Engine.IN_PROCESS, start_server=False, heart_be
         if _start_server:
             await async_register(_rpc_server_channel, _server_rpc_handler)
 
-        _pub_conn = await aioredis.create_redis_pool(_dsn)
-        _sub_conn = await aioredis.create_redis_pool(_dsn)
+        _pub_conn = await aioredis.from_url(_dsn)
+        _sub_conn = await aioredis.from_url(_dsn)
 
         if _heart_beat > 0:
             await async_register('heartbeat', _on_heart_beat)
@@ -248,7 +248,7 @@ async def emit(channel: str, message: Any = None, exchange=""):
         import aioredis
         try:
             await _pub_conn.publish(f"{channel}", message)
-        except aioredis.errors.ConnectionClosedError:
+        except aioredis.exceptions.ConnectionError:
             logger.warning('connection with Redis server closed, retry connect')
             await stop()
             await start(Engine.REDIS, heart_beat=_heart_beat, dsn=_dsn, start_server=_start_server)
@@ -272,7 +272,7 @@ async def rpc_send(remote) -> Any:
     event = asyncio.Event()
 
     __rpc_calls__[sn] = {
-        "event":  event,
+        "event": event,
         "result": None
     }
 
@@ -336,8 +336,9 @@ async def stop():
     _started = False
 
     if _engine == Engine.REDIS:
-        _sub_conn.close()
-        await _sub_conn.wait_closed()
+        await _pub_conn.close()
+        await _sub_conn.close()
+        # await _sub_conn.wait_closed()
 
     for binding in _registry.values():
         binding['queue'] = None
