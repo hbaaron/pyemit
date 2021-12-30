@@ -3,7 +3,9 @@ import logging
 import pickle
 import time
 from enum import IntEnum
-from typing import Callable, Any
+from typing import Any, Callable
+
+from aioredis.client import PubSub, Redis
 from aioredis.exceptions import ConnectionError
 
 logger = logging.getLogger(__name__)
@@ -15,10 +17,10 @@ class Engine(IntEnum):
 
 
 # for aio-redis mq only
-_pub_conn = None
-_sub_conn = None
+_pub_conn : Redis = None
+_sub_conn : Redis = None
 
-# msg => {"queue": aioredis.Channel, "handlers": handlers}
+# event => {"queue": aioredis.Channel, "handlers": handlers}
 _registry = {}
 _heart_beat = 0
 _started = False
@@ -48,6 +50,7 @@ def on(event, exchange=""):
 
 def register(event: str, handler: Callable, exchange=""):
     """
+    为`event`注册一个事件处理器。如果
     :param event:
     :param handler:
     :param exchange:
@@ -66,7 +69,7 @@ def register(event: str, handler: Callable, exchange=""):
 
 
 async def async_register(event: str, handler: Callable, exchange=""):
-    """
+    """异步地将一个`handler`注册到事件`event`的处理器队列中。
     :param event:
     :param handler:
     :param exchange:
@@ -85,6 +88,8 @@ async def async_register(event: str, handler: Callable, exchange=""):
 
 
 async def _bind(event: str):
+    """将`event`与一个消息队列绑定。
+    """
     global _registry, _engine, _sub_conn, _pub_conn
 
     item = _registry.get(event)
@@ -141,7 +146,6 @@ async def _listen(event: str):
             finally:
                 queue.task_done()
     else:
-        import aioredis
         try:
             async for msg in queue.listen():
                 msg = msg.get("data")
@@ -231,7 +235,10 @@ async def emit(channel: str, message: Any = None, exchange=""):
     :param message:
     :return:
     """
-    global _registry, _engine, _pub_conn
+    global _registry, _engine, _pub_conn, _started
+
+    if not _started:
+        logger.warning("emit is stopped or nor started yet.")
 
     channel = f"{exchange}/{channel}"
     logger.debug('send message on channel %s: %s', channel, message)
@@ -245,10 +252,9 @@ async def emit(channel: str, message: Any = None, exchange=""):
             return
         queue.put_nowait(message)
     elif _engine == Engine.REDIS:
-        import aioredis
         try:
             await _pub_conn.publish(f"{channel}", message)
-        except aioredis.exceptions.ConnectionError:
+        except ConnectionError:
             logger.warning('connection with Redis server closed, retry connect')
             await stop()
             await start(Engine.REDIS, heart_beat=_heart_beat, dsn=_dsn, start_server=_start_server)
@@ -331,17 +337,33 @@ async def _on_heart_beat(msg):
 
 
 async def stop():
-    global _started, _engine, _registry
+    """显式地关闭与redis的连接，释放资源
+    """
+    global _started, _engine, _registry, _pub_conn, _sub_conn
     logger.info("stopping emit...")
     _started = False
 
     if _engine == Engine.REDIS:
-        await _pub_conn.close()
-        await _sub_conn.close()
-        # await _sub_conn.wait_closed()
+        if _pub_conn is not None:
+            await _pub_conn.close()
+            _pub_conn = None
 
-    for binding in _registry.values():
-        binding['queue'] = None
-        binding['handlers'] = set()
+        if _sub_conn is not None:
+            """需要取消订阅并释放连接"""
+            for binding in _registry.values():
+                if 'queue' in binding:
+                    pubsub: PubSub = binding['queue']
+                    if pubsub:
+                        await pubsub.close()
+
+                    binding['queue'] = None
+                    binding['handlers'] = set()
+
+            _sub_conn = None
+
+    else:
+        for binding in _registry.values():
+            binding['queue'] = None
+            binding['handlers'] = set()
 
     logger.info("emit stopped.")

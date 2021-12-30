@@ -115,7 +115,7 @@ class TestEmit(unittest.TestCase):
 
     @async_test
     async def test_heart_beat(self):
-        e.register("hi", self.on_echo)
+        await e.async_register("hi", self.on_echo)
         await e.start(e.Engine.REDIS, heart_beat=0.5, dsn=self.dsn, start_server=True)
         await asyncio.sleep(1)
 
