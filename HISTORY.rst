@@ -31,3 +31,7 @@ History
 0.4.8 (2021-12-29)
 --------------------
 * Add asynchronous registration
+
+0.4.9.1 (2022-01-04)
+--------------------
+* Fixed that the stop method did not empty hannlers, then add function error

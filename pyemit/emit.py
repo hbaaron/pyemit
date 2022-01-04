@@ -4,7 +4,7 @@ import pickle
 import time
 from enum import IntEnum
 from typing import Callable, Any
-
+import aioredis
 logger = logging.getLogger(__name__)
 
 
@@ -14,7 +14,7 @@ class Engine(IntEnum):
 
 
 # for aio-redis mq only
-_pub_conn = None
+_pub_conn:aioredis.Redis = None
 _sub_conn = None
 
 # msg => {"queue": aioredis.Channel, "handlers": handlers}
@@ -65,7 +65,7 @@ def register(event: str, handler: Callable, exchange=""):
 
 
 async def async_register(event: str, handler: Callable, exchange=""):
-    """
+    """异步地将一个`handler`注册到事件`event`的处理器队列中。
     :param event:
     :param handler:
     :param exchange:
@@ -84,6 +84,8 @@ async def async_register(event: str, handler: Callable, exchange=""):
 
 
 async def _bind(event: str):
+    """将`event`与一个消息队列绑定。
+    """
     global _registry, _engine, _sub_conn, _pub_conn
 
     item = _registry.get(event)
@@ -201,18 +203,18 @@ async def start(engine: Engine = Engine.IN_PROCESS, start_server=False, heart_be
 
         import aioredis
 
-        register(_rpc_client_channel, _client_handle_rpc_call)
+        await async_register(_rpc_client_channel, _client_handle_rpc_call)
         if _start_server:
-            register(_rpc_server_channel, _server_rpc_handler)
+            await async_register(_rpc_server_channel, _server_rpc_handler)
 
         _pub_conn = await aioredis.create_redis(_dsn)
         _sub_conn = await aioredis.create_redis(_dsn)
 
         if _heart_beat > 0:
-            register('heartbeat', _on_heart_beat)
+            await async_register('heartbeat', _on_heart_beat)
     else:
-        register(_rpc_client_channel, _client_handle_rpc_call)
-        register(_rpc_server_channel, _server_rpc_handler)
+        await async_register(_rpc_client_channel, _client_handle_rpc_call)
+        await async_register(_rpc_server_channel, _server_rpc_handler)
 
     # bind registered channels
     for channel in _registry.keys():
@@ -231,7 +233,11 @@ async def emit(channel: str, message: Any = None, exchange=""):
     :param message:
     :return:
     """
-    global _registry, _engine, _pub_conn
+    global _registry, _engine, _pub_conn, _started
+
+    if not _started:
+        logger.warning("emit is stopped or nor started yet.")
+        return
 
     channel = f"{exchange}/{channel}"
     logger.debug('send message on channel %s: %s', channel, message)
@@ -250,7 +256,8 @@ async def emit(channel: str, message: Any = None, exchange=""):
             await _pub_conn.publish(f"{channel}", message)
         except aioredis.errors.ConnectionClosedError:
             logger.warning('connection with Redis server closed, retry connect')
-            await stop()
+            # await stop()
+            _started = False
             await start(Engine.REDIS, heart_beat=_heart_beat, dsn=_dsn, start_server=_start_server)
             raise ConnectionError
 
@@ -272,7 +279,7 @@ async def rpc_send(remote) -> Any:
     event = asyncio.Event()
 
     __rpc_calls__[sn] = {
-        "event":  event,
+        "event": event,
         "result": None
     }
 
@@ -331,16 +338,34 @@ async def _on_heart_beat(msg):
 
 
 async def stop():
-    global _started, _engine, _registry
+    """显式地关闭与redis的连接，释放资源
+    """
+    global _started, _engine, _registry, _pub_conn, _sub_conn
     logger.info("stopping emit...")
     _started = False
 
     if _engine == Engine.REDIS:
-        _sub_conn.close()
-        await _sub_conn.wait_closed()
+        if _pub_conn is not None:
+            _pub_conn.close()
+            await _pub_conn.wait_closed()
+            _pub_conn = None
+        if _sub_conn is not None:
+            _sub_conn.close()
+            await _sub_conn.wait_closed()
+            _sub_conn = None
 
-    for binding in _registry.values():
-        binding['queue'] = None
-        binding['handlers'] = set()
+            """需要取消订阅并释放连接"""
+            for binding in _registry.values():
+                if 'queue' in binding:
+                    pubsub = binding['queue']
+                    if pubsub:
+                        pubsub.close()
+                    binding['queue'] = None
+                    binding['handlers'] = set()
+
+    else:
+        for binding in _registry.values():
+            binding['queue'] = None
+            binding['handlers'] = set()
 
     logger.info("emit stopped.")
