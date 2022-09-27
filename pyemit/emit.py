@@ -360,8 +360,8 @@ async def stop():
                     binding['queue'] = None
                     binding['handlers'] = set()
 
+            await _sub_conn.close()
             _sub_conn = None
-
     else:
         for binding in _registry.values():
             binding['queue'] = None
